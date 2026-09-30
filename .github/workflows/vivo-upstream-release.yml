@@ -1,4 +1,3 @@
-```yaml
 name: Sync upstream and build VIVO APK
 
 on:
