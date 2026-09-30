@@ -105,7 +105,7 @@ jobs:
           build() {
             flutter build apk --release \
               --target-platform android-arm64 \
-              --android-project-arg=kaApplicationId=com.apple.android.music
+              --android-project-arg=kaApplicationId=com.leting
           }
           build || { sleep 90; build; }
           cp build/app/outputs/flutter-apk/app-release.apk "$APK_NAME"
@@ -120,7 +120,7 @@ jobs:
           set -euo pipefail
           notes="VIVO OriginOS 原子随身听兼容版，已合并上游 ${UPSTREAM_TAG}。
 
-          - 兼容包名：\`com.apple.android.music\`
+          - 兼容包名：\`com.leting\`
           - 架构：arm64-v8a
           - 上游发布：https://github.com/${UPSTREAM_REPOSITORY}/releases/tag/${UPSTREAM_TAG}
 
