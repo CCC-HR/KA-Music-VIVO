@@ -158,7 +158,7 @@ jobs:
         if: steps.upstream.outputs.needed == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: KA-Music-VIVO-com.leting-arm64
+          name: KA-Music-VIVO-com.spotify.music-arm64
           path: ${{ env.APK_NAME }}
           if-no-files-found: error
           retention-days: 30
