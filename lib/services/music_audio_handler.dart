@@ -13,6 +13,14 @@ class MusicAudioHandler extends BaseAudioHandler
   // 0x100 = current queue, 0x200 = favorites, 0x400 = downloaded songs.
   static const int _vivoSupportEvents = 0x7df;
 
+  // VIVO Car Connect / CarLauncher lyric metadata keys.
+  static const String _vivoLyricsWholeKey = 'ucar.media.metadata.LYRICS_WHOLE';
+  static const String _vivoLyricsLineKey = 'ucar.media.metadata.LYRICS_LINE';
+  static const String _vivoLyricsStatusKey = 'ucar.media.metadata.LYRICS_STATUS';
+  static const String _vivoUcarTitleKey = 'ucar.media.metadata.UCAR_TITLE';
+  static const String _vivoUcarArtistKey = 'ucar.media.metadata.UCAR_ARTIST';
+  static const String _androidLyricsKey = 'android.media.metadata.LYRICS';
+
   MusicAudioHandler() {
     ratingStyle.add(RatingStyle.heart);
     audioPlayer.playbackEventStream
@@ -36,6 +44,9 @@ class MusicAudioHandler extends BaseAudioHandler
   Song? _currentSong;
   Duration? _resolvedDuration;
   List<Song> _queueSongs = const [];
+  String _vivoLyricsWhole = '';
+  String _vivoLyricsLine = '';
+  bool _vivoHasLyrics = false;
 
   void attachTransportControls({
     required Future<void> Function() onNext,
@@ -146,12 +157,58 @@ class MusicAudioHandler extends BaseAudioHandler
       'vivomusicmix.media.metadata.support_event': _vivoSupportEvents,
       'vivomusicmix.media.metadata.LOOP_MODE': _getLoopMode?.call() ?? 1,
       'lyric': ?lyricText,
-      'currentLyric': ?lyricText,
-      'translationLyric': ?translationText,
-      'romanLyric': ?romanizationText,
+      'currentLyric': lyricText,
+      'translationLyric': translationText,
+      'romanLyric': romanizationText,
+      _vivoLyricsWholeKey: _vivoLyricsWhole,
+      _vivoLyricsLineKey: _vivoLyricsLine,
+      _vivoLyricsStatusKey: _vivoHasLyrics ? 1 : 0,
+      _vivoUcarTitleKey: song.title,
+      _vivoUcarArtistKey: song.artist,
+      _androidLyricsKey: _vivoLyricsWhole,
     };
     final updated = MediaItem(
       id: song.hash.isEmpty ? song.id : song.hash,
+      album: song.albumName,
+      title: song.title,
+      artist: song.artist,
+      duration: _durationFor(song),
+      artUri: song.coverUrl == null ? null : Uri.tryParse(song.coverUrl!),
+      playable: true,
+      rating: Rating.newHeartRating(_isLiked?.call(song) ?? false),
+      extras: extras,
+    );
+    mediaItem.add(updated);
+  }
+
+  /// Publish the complete LRC and the currently active lyric line to VIVO.
+  void updateVivoLyricsMetadata({
+    required String lyricsWhole,
+    String? lyricsLine,
+    required bool hasLyrics,
+  }) {
+    final song = _currentSong;
+    if (song == null) return;
+
+    _vivoLyricsWhole = lyricsWhole;
+    _vivoLyricsLine = lyricsLine ?? '';
+    _vivoHasLyrics = hasLyrics;
+
+    final extras = <String, dynamic>{
+      'hash': song.hash,
+      'songId': song.id,
+      'vivomusicmix.media.metadata.support_event': _vivoSupportEvents,
+      'vivomusicmix.media.metadata.LOOP_MODE': _getLoopMode?.call() ?? 1,
+      _vivoLyricsWholeKey: _vivoLyricsWhole,
+      _vivoLyricsLineKey: _vivoLyricsLine,
+      _vivoLyricsStatusKey: _vivoHasLyrics ? 1 : 0,
+      _vivoUcarTitleKey: song.title,
+      _vivoUcarArtistKey: song.artist,
+      _androidLyricsKey: _vivoLyricsWhole,
+    };
+
+    final updated = MediaItem(
+      id: _songId(song),
       album: song.albumName,
       title: song.title,
       artist: song.artist,
@@ -321,6 +378,14 @@ class MusicAudioHandler extends BaseAudioHandler
         // Bit mask used by vivo MusicWidgetMix: transport, progress and lists.
         'vivomusicmix.media.metadata.support_event': _vivoSupportEvents,
         'vivomusicmix.media.metadata.LOOP_MODE': _getLoopMode?.call() ?? 1,
+        if (_songId(song) == _songId(_currentSong ?? song)) ...{
+          _vivoLyricsWholeKey: _vivoLyricsWhole,
+          _vivoLyricsLineKey: _vivoLyricsLine,
+          _vivoLyricsStatusKey: _vivoHasLyrics ? 1 : 0,
+          _vivoUcarTitleKey: song.title,
+          _vivoUcarArtistKey: song.artist,
+          _androidLyricsKey: _vivoLyricsWhole,
+        },
         if (vivoPage != null) 'vivomusicmix_key_media_page': vivoPage,
         if (vivoHasMore != null) 'vivomusicmix_key_has_more': vivoHasMore,
       },
