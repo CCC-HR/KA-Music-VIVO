@@ -1,0 +1,74 @@
+name: Build VIVO car lyrics test APK
+
+on:
+  push:
+    branches:
+      - feature/vivo-car-lyrics
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  APK_NAME: KA-Music-VIVO-com.spotify.music-arm64.apk
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout lyrics test branch
+        uses: actions/checkout@v4
+        with:
+          ref: feature/vivo-car-lyrics
+          fetch-depth: 0
+          lfs: true
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Restore Android signing key
+        env:
+          VIVO_KEYSTORE_BASE64: ${{ secrets.VIVO_KEYSTORE_BASE64 }}
+          VIVO_STORE_PASSWORD: ${{ secrets.VIVO_STORE_PASSWORD }}
+          VIVO_KEY_ALIAS: ${{ secrets.VIVO_KEY_ALIAS }}
+          VIVO_KEY_PASSWORD: ${{ secrets.VIVO_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          test -n "$VIVO_KEYSTORE_BASE64"
+          test -n "$VIVO_STORE_PASSWORD"
+          test -n "$VIVO_KEY_ALIAS"
+          test -n "$VIVO_KEY_PASSWORD"
+          printf '%s' "$VIVO_KEYSTORE_BASE64" | base64 --decode > android/app/vivo-release.jks
+          {
+            echo 'storeFile=app/vivo-release.jks'
+            echo "storePassword=$VIVO_STORE_PASSWORD"
+            echo "keyAlias=$VIVO_KEY_ALIAS"
+            echo "keyPassword=$VIVO_KEY_PASSWORD"
+          } > android/key.properties
+
+      - name: Install dependencies and test
+        run: |
+          set -euo pipefail
+          flutter config --no-analytics
+          flutter pub get
+          flutter test
+
+      - name: Build com.spotify.music test APK
+        run: |
+          set -euo pipefail
+          flutter build apk --release \
+            --target-platform android-arm64 \
+            --android-project-arg=kaApplicationId=com.spotify.music
+          cp build/app/outputs/flutter-apk/app-release.apk "$APK_NAME"
+          ls -lh "$APK_NAME"
+
+      - name: Upload test APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: KA-Music-VIVO-com.spotify.music-arm64
+          path: ${{ env.APK_NAME }}
+          if-no-files-found: error
+          retention-days: 30
