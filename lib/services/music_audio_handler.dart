@@ -156,7 +156,7 @@ class MusicAudioHandler extends BaseAudioHandler
       'songId': song.id,
       'vivomusicmix.media.metadata.support_event': _vivoSupportEvents,
       'vivomusicmix.media.metadata.LOOP_MODE': _getLoopMode?.call() ?? 1,
-      'lyric': ?lyricText,
+      'lyric': lyricText,
       'currentLyric': lyricText,
       'translationLyric': translationText,
       'romanLyric': romanizationText,
