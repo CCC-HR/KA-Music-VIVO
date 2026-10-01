@@ -124,6 +124,7 @@ class PlayerController extends ChangeNotifier {
       _maybeSyncDesktopLyricFromPosition();
       _syncSuperLyricFromPosition();
       _syncBluetoothLyricsFromPosition();
+      _syncVivoLyricsFromPosition();
       notifyListeners();
     });
     // Send timing anchors; Android animates karaoke progress at display refresh.
@@ -231,6 +232,7 @@ class PlayerController extends ChangeNotifier {
   String? _completedSongHash;
   bool _isAppForeground = true;
   bool _desktopLyricsPreviewVisible = false;
+  int _lastVivoLyricIndex = -1;
 
   Song? currentSong;
   List<Song> queue = const [];
@@ -457,6 +459,7 @@ class PlayerController extends ChangeNotifier {
     _lastSuperLyricPlaying = true;
     _lastBluetoothLyricIndex = -1;
     _lastBluetoothPlaying = true;
+    _lastVivoLyricIndex = -1;
     _saveQueueState();
     _startPositionSaving();
     notifyListeners();
@@ -802,7 +805,8 @@ class PlayerController extends ChangeNotifier {
           listSize: queue.length,
         ),
       );
-      _audioHandler.updateLyricMetadata(lyricText: null);
+      // Bluetooth lyrics are independent from VIVO Car Connect lyrics.
+      // Do not clear the VIVO MediaSession metadata when this switch is disabled.
     } else if (enabled) {
       // 打开时立即推送一次当前状态
       _pushBluetoothLyricForCurrentLine(force: true);
@@ -949,6 +953,9 @@ class PlayerController extends ChangeNotifier {
             lyrics = lines;
             notifyListeners();
             _syncDesktopLyrics();
+      _syncVivoLyricsFromPosition(force: true);
+          _syncVivoLyricsFromPosition(force: true);
+            _syncVivoLyricsFromPosition(force: true);
           }
           return;
         }
@@ -1560,6 +1567,55 @@ class PlayerController extends ChangeNotifier {
   }
 
   /// 位置流中的车载蓝牙歌词同步入口。
+  /// Publish VIVO CarLauncher whole-LRC metadata and keep the current line synced.
+  /// The whole LRC is sent only when lyrics change; position ticks update the line
+  /// when its timestamp is crossed.
+  void _syncVivoLyricsFromPosition({bool force = false}) {
+    if (currentSong == null) return;
+
+    if (lyrics.isEmpty) {
+      if (force || _lastVivoLyricIndex != -1) {
+        _lastVivoLyricIndex = -1;
+        _audioHandler.updateVivoLyricsMetadata(
+          lyricsWhole: '',
+          lyricsLine: '',
+          hasLyrics: false,
+        );
+      }
+      return;
+    }
+
+    final index = activeLyricIndex.clamp(0, lyrics.length - 1);
+    if (!force && index == _lastVivoLyricIndex) return;
+
+    _lastVivoLyricIndex = index;
+    _audioHandler.updateVivoLyricsMetadata(
+      lyricsWhole: _buildVivoLrc(lyrics),
+      lyricsLine: lyrics[index].text,
+      hasLyrics: true,
+    );
+  }
+
+  String _buildVivoLrc(List<LyricLine> lines) {
+    final buffer = StringBuffer();
+    for (final line in lines) {
+      final totalMs = line.time.inMilliseconds.clamp(0, 24 * 60 * 60 * 1000);
+      final minutes = totalMs ~/ 60000;
+      final seconds = (totalMs % 60000) ~/ 1000;
+      final centiseconds = (totalMs % 1000) ~/ 10;
+      buffer
+        ..write('[')
+        ..write(minutes.toString().padLeft(2, '0'))
+        ..write(':')
+        ..write(seconds.toString().padLeft(2, '0'))
+        ..write('.')
+        ..write(centiseconds.toString().padLeft(2, '0'))
+        ..write(']')
+        ..writeln(line.text);
+    }
+    return buffer.toString();
+  }
+
   void _syncBluetoothLyricsFromPosition() {
     if (!bluetoothLyricsEnabled) return;
     if (currentSong == null) return;
