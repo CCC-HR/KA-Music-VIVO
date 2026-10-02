@@ -25,6 +25,7 @@ import android.support.v4.media.session.MediaControllerCompat;
 import android.support.v4.media.session.MediaSessionCompat;
 import android.support.v4.media.session.PlaybackStateCompat;
 import android.util.LruCache;
+import android.text.TextUtils;
 import android.util.Size;
 import android.view.KeyEvent;
 
@@ -787,6 +788,26 @@ public class AudioService extends MediaBrowserServiceCompat {
      *  - https://9to5google.com/2020/08/02/android-11-lockscreen-art/
      */
     synchronized void setMetadata(MediaMetadataCompat mediaMetadata) {
+        // VIVO CarLauncher receives the current lyric line through MediaMetadata,
+        // while Atomic Island receives the complete LRC through MediaSession extras.
+        // When only the line changes, avoid reloading artwork/notification and avoid
+        // replacing the cached whole-LRC payload; only mutate the line field.
+        if (isVivoLyricLineOnlyUpdate(mediaMetadata)) {
+            final String line = mediaMetadata.getString("ucar.media.metadata.LYRICS_LINE");
+            final Long status = mediaMetadata.getLong("ucar.media.metadata.LYRICS_STATUS");
+            MediaMetadataCompat.Builder builder =
+                    new MediaMetadataCompat.Builder(this.mediaMetadata);
+            builder.putString("ucar.media.metadata.LYRICS_LINE", line == null ? "" : line);
+            if (status != null) {
+                builder.putLong("ucar.media.metadata.LYRICS_STATUS", status);
+            }
+            final MediaMetadataCompat updated = builder.build();
+            this.mediaMetadata = updated;
+            mediaSession.setMetadata(updated);
+            updateVivoMusicWidgetMixSessionExtras(mediaMetadata);
+            return;
+        }
+
         String artCacheFilePath = mediaMetadata.getString("artCacheFile");
         if (artCacheFilePath != null) {
             // Load local files and network images, cached in files
@@ -808,6 +829,21 @@ public class AudioService extends MediaBrowserServiceCompat {
         updateVivoMusicWidgetMixSessionExtras(mediaMetadata);
         handler.removeCallbacksAndMessages(null);
         handler.post(this::updateNotification);
+    }
+
+    private boolean isVivoLyricLineOnlyUpdate(MediaMetadataCompat incoming) {
+        if (this.mediaMetadata == null) return false;
+
+        final String action = incoming.getString("ka.vivo.session.action");
+        if (!"vivomusicmix.extra.lrc_change".equals(action)) return false;
+
+        final String incomingWhole =
+                incoming.getString("ucar.media.metadata.LYRICS_WHOLE");
+        final String previousWhole =
+                this.mediaMetadata.getString("ucar.media.metadata.LYRICS_WHOLE");
+        return incomingWhole != null
+                && previousWhole != null
+                && TextUtils.equals(incomingWhole, previousWhole);
     }
 
     /**
