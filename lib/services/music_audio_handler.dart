@@ -169,7 +169,6 @@ class MusicAudioHandler extends BaseAudioHandler
       'translationLyric': translationText,
       'romanLyric': romanizationText,
       _vivoLyricsWholeKey: _vivoLyricsWhole,
-      _vivoLyricsLineKey: _vivoLyricsLine,
       _vivoLyricsStatusKey: _vivoHasLyrics ? 1 : 0,
       _vivoUcarTitleKey: song.title,
       _vivoUcarArtistKey: song.artist,
@@ -209,7 +208,6 @@ class MusicAudioHandler extends BaseAudioHandler
       'vivomusicmix.media.metadata.support_event': _vivoSupportEvents,
       'vivomusicmix.media.metadata.LOOP_MODE': _getLoopMode?.call() ?? 1,
       _vivoLyricsWholeKey: _vivoLyricsWhole,
-      _vivoLyricsLineKey: _vivoLyricsLine,
       _vivoLyricsStatusKey: _vivoHasLyrics ? 1 : 0,
       _vivoUcarTitleKey: song.title,
       _vivoUcarArtistKey: song.artist,
@@ -397,7 +395,6 @@ class MusicAudioHandler extends BaseAudioHandler
         'vivomusicmix.media.metadata.LOOP_MODE': _getLoopMode?.call() ?? 1,
         if (_songId(song) == _songId(_currentSong ?? song)) ...{
           _vivoLyricsWholeKey: _vivoLyricsWhole,
-          _vivoLyricsLineKey: _vivoLyricsLine,
           _vivoLyricsStatusKey: _vivoHasLyrics ? 1 : 0,
           _vivoUcarTitleKey: song.title,
           _vivoUcarArtistKey: song.artist,
