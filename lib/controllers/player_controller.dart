@@ -233,6 +233,7 @@ class PlayerController extends ChangeNotifier {
   bool _isAppForeground = true;
   bool _desktopLyricsPreviewVisible = false;
   int _lastVivoLyricIndex = -1;
+  String _lastVivoLyricsWhole = '';
 
   Song? currentSong;
   List<Song> queue = const [];
@@ -1565,11 +1566,11 @@ class PlayerController extends ChangeNotifier {
       _lastSuperLyricPlaying = false;
       unawaited(_superLyric.sendStop());
     }
+  }
+
   /// 位置流中的车载歌词同步入口。
   /// VIVO CarLauncher 使用完整 LRC 时间轴；这里只在整首 LRC 发生变化时更新
   /// MediaSession 元数据，播放过程由 PlaybackState 的时间轴驱动。
-  String _lastVivoLyricsWhole = '';
-
   void _syncVivoLyricsFromPosition({bool force = false}) {
     if (currentSong == null) return;
 
@@ -1595,6 +1596,16 @@ class PlayerController extends ChangeNotifier {
   }
 
   String _buildVivoLrc(List<LyricLine> lines) {
+    final buffer = StringBuffer();
+    for (final line in lines) {
+      final totalMs = line.time.inMilliseconds.clamp(0, 24 * 60 * 60 * 1000);
+      final minutes = totalMs ~/ 60000;
+      final seconds = (totalMs % 60000) ~/ 1000;
+      final centiseconds = (totalMs % 1000) ~/ 10;
+      buffer
+        ..write('[')
+        ..write(minutes.toString().padLeft(2, '0'))
+        ..write(':')
         ..write(seconds.toString().padLeft(2, '0'))
         ..write('.')
         ..write(centiseconds.toString().padLeft(2, '0'))
