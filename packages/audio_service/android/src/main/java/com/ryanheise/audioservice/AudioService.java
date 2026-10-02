@@ -18,6 +18,7 @@ import android.os.Looper;
 import android.os.ParcelFileDescriptor;
 import android.os.PowerManager;
 import android.os.ResultReceiver;
+import android.os.SystemClock;
 import android.support.v4.media.MediaBrowserCompat;
 import android.support.v4.media.MediaDescriptionCompat;
 import android.support.v4.media.MediaMetadataCompat;
@@ -123,12 +124,18 @@ public class AudioService extends MediaBrowserServiceCompat {
     }
 
     MediaMetadataCompat createMediaMetadata(String mediaId, String title, String album, String artist, String genre, Long duration, String artUri, Boolean playable, String displayTitle, String displaySubtitle, String displayDescription, RatingCompat rating, Map<?, ?> extras) {
+        final boolean vivoCurrentMedia =
+                extras != null && extras.containsKey("ucar.media.metadata.UCAR_TITLE");
         MediaMetadataCompat.Builder builder = new MediaMetadataCompat.Builder()
                 .putString(MediaMetadataCompat.METADATA_KEY_MEDIA_ID, mediaId)
                 .putString(MediaMetadataCompat.METADATA_KEY_TITLE, title);
         if (album != null)
             builder.putString(MediaMetadataCompat.METADATA_KEY_ALBUM, album);
-        if (artist != null)
+        // VIVO's SystemUI/Atomic Island already renders the current artist separately.
+        // Keeping the standard ARTIST field here produces "artist - title" plus another
+        // standalone artist line. Preserve artist for browse/other devices, but omit it
+        // from the current VIVO media item.
+        if (artist != null && !vivoCurrentMedia)
             builder.putString(MediaMetadataCompat.METADATA_KEY_ARTIST, artist);
         if (genre != null)
             builder.putString(MediaMetadataCompat.METADATA_KEY_GENRE, genre);
@@ -285,6 +292,84 @@ public class AudioService extends MediaBrowserServiceCompat {
     private int shuffleMode;
     private boolean notificationCreated;
     private final Handler handler = new Handler(Looper.getMainLooper());
+
+    // VIVO Atomic Island needs a real elapsed-time PlaybackState clock. The Flutter
+    // position stream must not be used to flood MediaSession state; instead, after a
+    // normal state update, Android advances the timestamped state natively.
+    private static final long VIVO_PLAYBACK_HEARTBEAT_MS = 500L;
+    private PlaybackStateCompat vivoPlaybackState;
+    private long vivoPlaybackBasePosition;
+    private long vivoPlaybackBaseElapsedRealtime;
+    private long vivoPlaybackBufferedPosition;
+    private float vivoPlaybackSpeed = 1f;
+    private boolean vivoPlaybackHeartbeatEnabled;
+    private final Runnable vivoPlaybackHeartbeat = new Runnable() {
+        @Override
+        public void run() {
+            if (!vivoPlaybackHeartbeatEnabled || mediaSession == null || vivoPlaybackState == null) {
+                return;
+            }
+            if (!playing || processingState != AudioProcessingState.ready) {
+                vivoPlaybackHeartbeatEnabled = false;
+                return;
+            }
+
+            final long now = SystemClock.elapsedRealtime();
+            long position = vivoPlaybackBasePosition
+                    + Math.max(0L, now - vivoPlaybackBaseElapsedRealtime) * Math.round(vivoPlaybackSpeed * 1000f) / 1000L;
+
+            PlaybackStateCompat.Builder builder =
+                    new PlaybackStateCompat.Builder(vivoPlaybackState)
+                            .setState(
+                                    PlaybackStateCompat.STATE_PLAYING,
+                                    Math.max(0L, position),
+                                    vivoPlaybackSpeed,
+                                    now)
+                            .setBufferedPosition(vivoPlaybackBufferedPosition);
+            vivoPlaybackState = builder.build();
+            mediaSession.setPlaybackState(vivoPlaybackState);
+
+            handler.postDelayed(this, VIVO_PLAYBACK_HEARTBEAT_MS);
+        }
+    };
+
+    // Atomic Island / VIVO framework integration is only enabled on VIVO/iQOO devices.
+    private boolean isVivoFamilyDevice() {
+        return "vivo".equalsIgnoreCase(Build.MANUFACTURER)
+                || "vivo".equalsIgnoreCase(Build.BRAND)
+                || "iqoo".equalsIgnoreCase(Build.BRAND);
+    }
+
+    private void updateVivoPlaybackHeartbeat(
+            PlaybackStateCompat state,
+            long position,
+            long bufferedPosition,
+            float speed,
+            boolean playingNow,
+            AudioProcessingState processingStateNow) {
+        if (!isVivoFamilyDevice()) {
+            vivoPlaybackHeartbeatEnabled = false;
+            handler.removeCallbacks(vivoPlaybackHeartbeat);
+            return;
+        }
+
+        vivoPlaybackState = state;
+        vivoPlaybackBasePosition = Math.max(0L, position);
+        vivoPlaybackBaseElapsedRealtime = SystemClock.elapsedRealtime();
+        vivoPlaybackBufferedPosition = Math.max(0L, bufferedPosition);
+        vivoPlaybackSpeed = speed > 0f ? speed : 1f;
+
+        vivoPlaybackHeartbeatEnabled =
+                playingNow
+                        && processingStateNow == AudioProcessingState.ready
+                        && vivoPlaybackSpeed > 0f;
+
+        handler.removeCallbacks(vivoPlaybackHeartbeat);
+        if (vivoPlaybackHeartbeatEnabled) {
+            handler.postDelayed(vivoPlaybackHeartbeat, VIVO_PLAYBACK_HEARTBEAT_MS);
+        }
+    }
+
     private VolumeProviderCompat volumeProvider;
 
     public AudioProcessingState getProcessingState() {
@@ -369,6 +454,8 @@ public class AudioService extends MediaBrowserServiceCompat {
             listener.onDestroy();
             listener = null;
         }
+        vivoPlaybackHeartbeatEnabled = false;
+        handler.removeCallbacks(vivoPlaybackHeartbeat);
         mediaMetadata = null;
         artBitmap = null;
         queue.clear();
@@ -556,7 +643,15 @@ public class AudioService extends MediaBrowserServiceCompat {
             stateBuilder.setExtras(extras);
         }
 
-        mediaSession.setPlaybackState(stateBuilder.build());
+        final PlaybackStateCompat newPlaybackState = stateBuilder.build();
+        mediaSession.setPlaybackState(newPlaybackState);
+        updateVivoPlaybackHeartbeat(
+                newPlaybackState,
+                position,
+                bufferedPosition,
+                speed,
+                playing,
+                processingState);
         mediaSession.setRepeatMode(repeatMode);
         mediaSession.setShuffleMode(shuffleMode);
         mediaSession.setCaptioningEnabled(captioningEnabled);
@@ -805,7 +900,7 @@ public class AudioService extends MediaBrowserServiceCompat {
             final MediaMetadataCompat updated = builder.build();
             this.mediaMetadata = updated;
             mediaSession.setMetadata(updated);
-            updateVivoMusicWidgetMixSessionExtras(mediaMetadata);
+            updateVivoMusicWidgetMixSessionExtras(mediaMetadata, false);
             return;
         }
 
@@ -827,7 +922,7 @@ public class AudioService extends MediaBrowserServiceCompat {
         }
         this.mediaMetadata = mediaMetadata;
         mediaSession.setMetadata(mediaMetadata);
-        updateVivoMusicWidgetMixSessionExtras(mediaMetadata);
+        updateVivoMusicWidgetMixSessionExtras(mediaMetadata, false);
         handler.removeCallbacksAndMessages(null);
         handler.post(this::updateNotification);
     }
@@ -854,20 +949,37 @@ public class AudioService extends MediaBrowserServiceCompat {
      * and expects these exact vendor keys. The Flutter side carries the values
      * in reserved MediaItem extras; they never change the VIVO APK.
      */
-    private void updateVivoMusicWidgetMixSessionExtras(MediaMetadataCompat metadata) {
-        Bundle extras = new Bundle();
+    private String vivoAtomicLastLyric = "";
+    private String vivoAtomicLastMediaId = "";
+    private String vivoAtomicLastAction = "";
+
+    private void updateVivoMusicWidgetMixSessionExtras(
+            MediaMetadataCompat metadata, boolean force) {
         String action = metadata.getString("ka.vivo.session.action");
         String mediaId = metadata.getString("ka.vivo.session.media_id");
         String lyric = metadata.getString("ka.vivo.session.lyric");
 
-        if (action != null) {
-            extras.putString("vivomusicmix.meida.extra.key.action", action);
-            if (mediaId != null) {
-                extras.putString("vivomusicmix.extra.key.meidia_id", mediaId);
-            }
-            extras.putString("vivomusicmix.extra.key.lyric", lyric == null ? "" : lyric);
+        if (action == null || lyric == null || lyric.isEmpty()) {
+            return;
         }
 
+        if (!force
+                && TextUtils.equals(action, vivoAtomicLastAction)
+                && TextUtils.equals(mediaId, vivoAtomicLastMediaId)
+                && TextUtils.equals(lyric, vivoAtomicLastLyric)) {
+            return;
+        }
+
+        Bundle extras = new Bundle();
+        extras.putString("vivomusicmix.meida.extra.key.action", action);
+        if (mediaId != null && !mediaId.isEmpty()) {
+            extras.putString("vivomusicmix.extra.key.meidia_id", mediaId);
+        }
+        extras.putString("vivomusicmix.extra.key.lyric", lyric);
+
+        vivoAtomicLastAction = action;
+        vivoAtomicLastMediaId = mediaId == null ? "" : mediaId;
+        vivoAtomicLastLyric = lyric;
         mediaSession.setExtras(extras);
     }
 
@@ -1192,7 +1304,7 @@ public class AudioService extends MediaBrowserServiceCompat {
                 // VIVO MusicWidgetMix asks the active MediaSession for the current
                 // whole LRC when the atomic-island/media widget attaches late.
                 if (mediaMetadata != null) {
-                    updateVivoMusicWidgetMixSessionExtras(mediaMetadata);
+                    updateVivoMusicWidgetMixSessionExtras(mediaMetadata, true);
                 }
                 if (cb != null) {
                     cb.send(0, Bundle.EMPTY);
