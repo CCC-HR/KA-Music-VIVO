@@ -953,8 +953,6 @@ class PlayerController extends ChangeNotifier {
             lyrics = lines;
             notifyListeners();
             _syncDesktopLyrics();
-      _syncVivoLyricsFromPosition(force: true);
-          _syncVivoLyricsFromPosition(force: true);
             _syncVivoLyricsFromPosition(force: true);
           }
           return;
@@ -972,6 +970,7 @@ class PlayerController extends ChangeNotifier {
             lyrics = lines;
             notifyListeners();
             _syncDesktopLyrics();
+            _syncVivoLyricsFromPosition(force: true);
           }
           return;
         }
@@ -1004,6 +1003,7 @@ class PlayerController extends ChangeNotifier {
           lyrics = cached.data;
           notifyListeners();
           _syncDesktopLyrics();
+          _syncVivoLyricsFromPosition(force: true);
         }
       } catch (_) {}
     }
@@ -1032,6 +1032,7 @@ class PlayerController extends ChangeNotifier {
     }
     if (currentSong?.hash == song.hash) {
       _syncDesktopLyrics();
+      _syncVivoLyricsFromPosition(force: true);
     }
   }
 
