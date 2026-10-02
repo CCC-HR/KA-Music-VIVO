@@ -1565,49 +1565,36 @@ class PlayerController extends ChangeNotifier {
       _lastSuperLyricPlaying = false;
       unawaited(_superLyric.sendStop());
     }
-  }
+  /// 位置流中的车载歌词同步入口。
+  /// VIVO CarLauncher 使用完整 LRC 时间轴；这里只在整首 LRC 发生变化时更新
+  /// MediaSession 元数据，播放过程由 PlaybackState 的时间轴驱动。
+  String _lastVivoLyricsWhole = '';
 
-  /// 位置流中的车载蓝牙歌词同步入口。
-  /// Publish VIVO CarLauncher whole-LRC metadata and keep the current line synced.
-  /// The whole LRC is sent only when lyrics change; position ticks update the line
-  /// when its timestamp is crossed.
   void _syncVivoLyricsFromPosition({bool force = false}) {
     if (currentSong == null) return;
 
     if (lyrics.isEmpty) {
-      if (force || _lastVivoLyricIndex != -1) {
-        _lastVivoLyricIndex = -1;
+      if (force || _lastVivoLyricsWhole.isNotEmpty) {
+        _lastVivoLyricsWhole = '';
         _audioHandler.updateVivoLyricsMetadata(
           lyricsWhole: '',
-          lyricsLine: '',
           hasLyrics: false,
         );
       }
       return;
     }
 
-    final index = activeLyricIndex.clamp(0, lyrics.length - 1);
-    if (!force && index == _lastVivoLyricIndex) return;
+    final whole = _buildVivoLrc(lyrics);
+    if (!force && whole == _lastVivoLyricsWhole) return;
 
-    _lastVivoLyricIndex = index;
+    _lastVivoLyricsWhole = whole;
     _audioHandler.updateVivoLyricsMetadata(
-      lyricsWhole: _buildVivoLrc(lyrics),
-      lyricsLine: lyrics[index].text,
+      lyricsWhole: whole,
       hasLyrics: true,
     );
   }
 
   String _buildVivoLrc(List<LyricLine> lines) {
-    final buffer = StringBuffer();
-    for (final line in lines) {
-      final totalMs = line.time.inMilliseconds.clamp(0, 24 * 60 * 60 * 1000);
-      final minutes = totalMs ~/ 60000;
-      final seconds = (totalMs % 60000) ~/ 1000;
-      final centiseconds = (totalMs % 1000) ~/ 10;
-      buffer
-        ..write('[')
-        ..write(minutes.toString().padLeft(2, '0'))
-        ..write(':')
         ..write(seconds.toString().padLeft(2, '0'))
         ..write('.')
         ..write(centiseconds.toString().padLeft(2, '0'))
