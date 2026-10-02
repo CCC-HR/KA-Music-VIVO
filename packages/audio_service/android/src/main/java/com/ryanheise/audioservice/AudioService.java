@@ -805,8 +805,33 @@ public class AudioService extends MediaBrowserServiceCompat {
         }
         this.mediaMetadata = mediaMetadata;
         mediaSession.setMetadata(mediaMetadata);
+        updateVivoMusicWidgetMixSessionExtras(mediaMetadata);
         handler.removeCallbacksAndMessages(null);
         handler.post(this::updateNotification);
+    }
+
+    /**
+     * Publish VIVO MusicWidgetMix live lyric updates via MediaSession extras.
+     *
+     * Atomic Island 6.2.5.6 listens to MediaControllerCompat.onExtrasChanged()
+     * and expects these exact vendor keys. The Flutter side carries the values
+     * in reserved MediaItem extras; they never change the VIVO APK.
+     */
+    private void updateVivoMusicWidgetMixSessionExtras(MediaMetadataCompat metadata) {
+        Bundle extras = new Bundle();
+        String action = metadata.getString("ka.vivo.session.action");
+        String mediaId = metadata.getString("ka.vivo.session.media_id");
+        String lyric = metadata.getString("ka.vivo.session.lyric");
+
+        if (action != null) {
+            extras.putString("vivomusicmix.meida.extra.key.action", action);
+            if (mediaId != null) {
+                extras.putString("vivomusicmix.extra.key.meidia_id", mediaId);
+            }
+            extras.putString("vivomusicmix.extra.key.lyric", lyric == null ? "" : lyric);
+        }
+
+        mediaSession.setExtras(extras);
     }
 
     private MediaMetadataCompat putArtToMetadata(MediaMetadataCompat mediaMetadata) {
