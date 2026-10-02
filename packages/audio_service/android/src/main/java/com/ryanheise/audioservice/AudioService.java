@@ -144,12 +144,12 @@ public class AudioService extends MediaBrowserServiceCompat {
             builder.putLong("playable_long", playable ? 1 : 0);
         if (displayTitle != null)
             builder.putString(MediaMetadataCompat.METADATA_KEY_DISPLAY_TITLE, displayTitle);
-        if (displaySubtitle != null) {
+        if (displaySubtitle != null && !displaySubtitle.isEmpty()) {
             builder.putString(MediaMetadataCompat.METADATA_KEY_DISPLAY_SUBTITLE, displaySubtitle);
-        } else if (vivoCurrentMedia && artist != null && !artist.isEmpty()) {
-            // Mini Player uses title + subtitle as "song - artist".
-            // Status-bar media controls can still read the normal ARTIST field
-            // and render it as the second line.
+        } else if (artist != null && !artist.isEmpty()) {
+            // Unified presentation rule:
+            // one-line surfaces can render "song - artist", while two-line
+            // surfaces use TITLE on line 1 and DISPLAY_SUBTITLE on line 2.
             builder.putString(MediaMetadataCompat.METADATA_KEY_DISPLAY_SUBTITLE, artist);
         }
         if (displayDescription != null)
@@ -458,6 +458,7 @@ public class AudioService extends MediaBrowserServiceCompat {
         }
         vivoPlaybackHeartbeatEnabled = false;
         handler.removeCallbacks(vivoPlaybackHeartbeat);
+        vivoAtomicResendHandler.removeCallbacksAndMessages(null);
         mediaMetadata = null;
         artBitmap = null;
         queue.clear();
@@ -961,6 +962,29 @@ public class AudioService extends MediaBrowserServiceCompat {
     private String vivoAtomicLastMediaId = "";
     private String vivoAtomicLastAction = "";
 
+    // Late-connect fallback: VIVO may attach to the MediaSession after the
+    // initial lrc_change extras were sent for the first song.
+    private final Handler vivoAtomicResendHandler = new Handler(Looper.getMainLooper());
+
+    private void scheduleVivoAtomicResends() {
+        vivoAtomicResendHandler.removeCallbacksAndMessages(null);
+        if (mediaSession == null || vivoAtomicLastLyric.isEmpty()) return;
+        vivoAtomicResendHandler.postDelayed(this::resendCachedVivoAtomicExtras, 1000L);
+        vivoAtomicResendHandler.postDelayed(this::resendCachedVivoAtomicExtras, 5000L);
+        vivoAtomicResendHandler.postDelayed(this::resendCachedVivoAtomicExtras, 25000L);
+    }
+
+    private void resendCachedVivoAtomicExtras() {
+        if (mediaSession == null || vivoAtomicLastLyric.isEmpty()) return;
+        Bundle extras = new Bundle();
+        extras.putString("vivomusicmix.meida.extra.key.action", vivoAtomicLastAction);
+        if (!vivoAtomicLastMediaId.isEmpty()) {
+            extras.putString("vivomusicmix.extra.key.meidia_id", vivoAtomicLastMediaId);
+        }
+        extras.putString("vivomusicmix.extra.key.lyric", vivoAtomicLastLyric);
+        mediaSession.setExtras(extras);
+    }
+
     private void updateVivoMusicWidgetMixSessionExtras(
             MediaMetadataCompat metadata, boolean force) {
         String action = metadata.getString("ka.vivo.session.action");
@@ -989,6 +1013,7 @@ public class AudioService extends MediaBrowserServiceCompat {
         vivoAtomicLastMediaId = mediaId == null ? "" : mediaId;
         vivoAtomicLastLyric = lyric;
         mediaSession.setExtras(extras);
+        scheduleVivoAtomicResends();
     }
 
     private MediaMetadataCompat putArtToMetadata(MediaMetadataCompat mediaMetadata) {
