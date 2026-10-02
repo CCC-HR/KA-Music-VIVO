@@ -142,15 +142,26 @@ public class AudioService extends MediaBrowserServiceCompat {
         }
         if (playable != null)
             builder.putLong("playable_long", playable ? 1 : 0);
-        if (displayTitle != null)
-            builder.putString(MediaMetadataCompat.METADATA_KEY_DISPLAY_TITLE, displayTitle);
-        if (displaySubtitle != null && !displaySubtitle.isEmpty()) {
-            builder.putString(MediaMetadataCompat.METADATA_KEY_DISPLAY_SUBTITLE, displaySubtitle);
-        } else if (artist != null && !artist.isEmpty()) {
-            // Unified presentation rule:
-            // one-line surfaces can render "song - artist", while two-line
-            // surfaces use TITLE on line 1 and DISPLAY_SUBTITLE on line 2.
-            builder.putString(MediaMetadataCompat.METADATA_KEY_DISPLAY_SUBTITLE, artist);
+        if (vivoCurrentMedia) {
+            // Atomic Island Mini Player needs the compact title form on its first
+            // line. Keep standard TITLE/ARTIST untouched for other surfaces.
+            final String combinedTitle;
+            if (artist != null && !artist.isEmpty()) {
+                combinedTitle = title + " - " + artist;
+            } else {
+                combinedTitle = title;
+            }
+            builder.putString(MediaMetadataCompat.METADATA_KEY_DISPLAY_TITLE, combinedTitle);
+            // Do not expose artist as DISPLAY_SUBTITLE on the current VIVO item:
+            // Atomic Island uses that second row for its live lyric presentation.
+        } else {
+            if (displayTitle != null)
+                builder.putString(MediaMetadataCompat.METADATA_KEY_DISPLAY_TITLE, displayTitle);
+            if (displaySubtitle != null && !displaySubtitle.isEmpty()) {
+                builder.putString(MediaMetadataCompat.METADATA_KEY_DISPLAY_SUBTITLE, displaySubtitle);
+            } else if (artist != null && !artist.isEmpty()) {
+                builder.putString(MediaMetadataCompat.METADATA_KEY_DISPLAY_SUBTITLE, artist);
+            }
         }
         if (displayDescription != null)
             builder.putString(MediaMetadataCompat.METADATA_KEY_DISPLAY_DESCRIPTION, displayDescription);
@@ -721,13 +732,18 @@ public class AudioService extends MediaBrowserServiceCompat {
         }
         NotificationCompat.Builder builder = getNotificationBuilder();
         if (mediaMetadata != null) {
-            MediaDescriptionCompat description = mediaMetadata.getDescription();
-            if (description.getTitle() != null)
-                builder.setContentTitle(description.getTitle());
-            if (description.getSubtitle() != null)
-                builder.setContentText(description.getSubtitle());
-            if (description.getDescription() != null)
-                builder.setSubText(description.getDescription());
+            // Keep the system notification/status-bar presentation on the standard
+            // TITLE/ARTIST fields. Atomic Island gets the VIVO-specific
+            // DISPLAY_TITLE above, without changing this two-line surface.
+            CharSequence title = mediaMetadata.getText(MediaMetadataCompat.METADATA_KEY_TITLE);
+            CharSequence artist = mediaMetadata.getText(MediaMetadataCompat.METADATA_KEY_ARTIST);
+            if (title != null)
+                builder.setContentTitle(title);
+            if (artist != null)
+                builder.setContentText(artist);
+            CharSequence description = mediaMetadata.getDescription().getDescription();
+            if (description != null)
+                builder.setSubText(description);
             synchronized (this) {
                 if (artBitmap != null)
                     builder.setLargeIcon(artBitmap);
