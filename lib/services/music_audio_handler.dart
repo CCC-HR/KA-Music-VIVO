@@ -227,6 +227,7 @@ class MusicAudioHandler extends BaseAudioHandler
       album: song.albumName,
       title: song.title,
       artist: song.artist,
+      displayTitle: song.title,
       duration: _durationFor(song),
       artUri: song.coverUrl == null ? null : Uri.tryParse(song.coverUrl!),
       playable: true,
