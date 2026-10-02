@@ -17,6 +17,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.os.ParcelFileDescriptor;
 import android.os.PowerManager;
+import android.os.ResultReceiver;
 import android.support.v4.media.MediaBrowserCompat;
 import android.support.v4.media.MediaDescriptionCompat;
 import android.support.v4.media.MediaMetadataCompat;
@@ -1183,6 +1184,22 @@ public class AudioService extends MediaBrowserServiceCompat {
         public void onSetShuffleMode(int shuffleMode) {
             if (listener == null) return;
             listener.onSetShuffleMode(shuffleMode);
+        }
+
+        @Override
+        public void onCommand(String command, Bundle extras, ResultReceiver cb) {
+            if ("action_request_whole_lrc".equals(command)) {
+                // VIVO MusicWidgetMix asks the active MediaSession for the current
+                // whole LRC when the atomic-island/media widget attaches late.
+                if (mediaMetadata != null) {
+                    updateVivoMusicWidgetMixSessionExtras(mediaMetadata);
+                }
+                if (cb != null) {
+                    cb.send(0, Bundle.EMPTY);
+                }
+                return;
+            }
+            super.onCommand(command, extras, cb);
         }
 
         @Override
