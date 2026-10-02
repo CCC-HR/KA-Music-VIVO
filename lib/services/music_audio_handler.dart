@@ -215,9 +215,10 @@ class MusicAudioHandler extends BaseAudioHandler
       _androidLyricsKey: _vivoLyricsWhole,
       _vivoSessionActionKey: _vivoSessionLrcChangeAction,
       _vivoSessionMediaIdKey: _songId(song),
-      // Atomic Island's onExtrasChanged() feeds this value into LrcUpdateEvent.lrcString.
-      // It must therefore be the complete LRC, not just the currently highlighted line.
-      _vivoSessionLyricKey: _vivoLyricsLine,
+      // Atomic Island parses this value as a full timestamped LRC string
+      // through LrcUpdateEvent.lrcString. The current line is published
+      // separately through ucar.media.metadata.LYRICS_LINE for CarLauncher.
+      _vivoSessionLyricKey: _vivoLyricsWhole,
     };
 
     final updated = MediaItem(
