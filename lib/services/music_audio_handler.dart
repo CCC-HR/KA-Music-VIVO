@@ -21,6 +21,14 @@ class MusicAudioHandler extends BaseAudioHandler
   static const String _vivoUcarArtistKey = 'ucar.media.metadata.UCAR_ARTIST';
   static const String _androidLyricsKey = 'android.media.metadata.LYRICS';
 
+  // Reserved metadata keys consumed by the native audio_service bridge to
+  // publish VIVO MusicWidgetMix live-lyric updates through MediaSession extras.
+  static const String _vivoSessionActionKey = 'ka.vivo.session.action';
+  static const String _vivoSessionMediaIdKey = 'ka.vivo.session.media_id';
+  static const String _vivoSessionLyricKey = 'ka.vivo.session.lyric';
+  static const String _vivoSessionLrcChangeAction =
+      'vivomusicmix.extra.lrc_change';
+
   MusicAudioHandler() {
     ratingStyle.add(RatingStyle.heart);
     audioPlayer.playbackEventStream
@@ -166,6 +174,9 @@ class MusicAudioHandler extends BaseAudioHandler
       _vivoUcarTitleKey: song.title,
       _vivoUcarArtistKey: song.artist,
       _androidLyricsKey: _vivoLyricsWhole,
+      _vivoSessionActionKey: _vivoSessionLrcChangeAction,
+      _vivoSessionMediaIdKey: _songId(song),
+      _vivoSessionLyricKey: lyricText ?? _vivoLyricsLine,
     };
     final updated = MediaItem(
       id: song.hash.isEmpty ? song.id : song.hash,
@@ -205,6 +216,9 @@ class MusicAudioHandler extends BaseAudioHandler
       _vivoUcarTitleKey: song.title,
       _vivoUcarArtistKey: song.artist,
       _androidLyricsKey: _vivoLyricsWhole,
+      _vivoSessionActionKey: _vivoSessionLrcChangeAction,
+      _vivoSessionMediaIdKey: _songId(song),
+      _vivoSessionLyricKey: _vivoLyricsLine,
     };
 
     final updated = MediaItem(
@@ -385,6 +399,9 @@ class MusicAudioHandler extends BaseAudioHandler
           _vivoUcarTitleKey: song.title,
           _vivoUcarArtistKey: song.artist,
           _androidLyricsKey: _vivoLyricsWhole,
+          _vivoSessionActionKey: _vivoSessionLrcChangeAction,
+          _vivoSessionMediaIdKey: _songId(song),
+          _vivoSessionLyricKey: _vivoLyricsLine,
         },
         if (vivoPage != null) 'vivomusicmix_key_media_page': vivoPage,
         if (vivoHasMore != null) 'vivomusicmix_key_has_more': vivoHasMore,
