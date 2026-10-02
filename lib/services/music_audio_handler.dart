@@ -34,13 +34,6 @@ class MusicAudioHandler extends BaseAudioHandler
     audioPlayer.playbackEventStream
         .map(_playbackStateForEvent)
         .pipe(playbackState);
-    // just_audio's playbackEventStream is event-driven; its positionStream is
-    // the high-frequency clock used for seek-bar/lyric synchronization.
-    // Mirror that clock into MediaSession so VIVO Atomic Island can continuously
-    // derive the active LRC line while its home card remains collapsed.
-    _positionMetadataSubscription = audioPlayer.positionStream.listen((_) {
-      playbackState.add(_playbackStateForEvent(audioPlayer.playbackEvent));
-    });
   }
 
   final AudioPlayer audioPlayer = AudioPlayer();
@@ -62,7 +55,6 @@ class MusicAudioHandler extends BaseAudioHandler
   String _vivoLyricsWhole = '';
   String _vivoLyricsLine = '';
   bool _vivoHasLyrics = false;
-  StreamSubscription<Duration>? _positionMetadataSubscription;
 
   void attachTransportControls({
     required Future<void> Function() onNext,
@@ -225,7 +217,7 @@ class MusicAudioHandler extends BaseAudioHandler
       _vivoSessionMediaIdKey: _songId(song),
       // Atomic Island's onExtrasChanged() feeds this value into LrcUpdateEvent.lrcString.
       // It must therefore be the complete LRC, not just the currently highlighted line.
-      _vivoSessionLyricKey: _vivoLyricsWhole,
+      _vivoSessionLyricKey: _vivoLyricsLine,
     };
 
     final updated = MediaItem(
@@ -374,8 +366,6 @@ class MusicAudioHandler extends BaseAudioHandler
   }
 
   Future<void> close() async {
-    await _positionMetadataSubscription?.cancel();
-    _positionMetadataSubscription = null;
     await audioPlayer.dispose();
   }
 
