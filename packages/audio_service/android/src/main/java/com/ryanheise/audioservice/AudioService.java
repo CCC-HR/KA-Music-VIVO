@@ -131,11 +131,7 @@ public class AudioService extends MediaBrowserServiceCompat {
                 .putString(MediaMetadataCompat.METADATA_KEY_TITLE, title);
         if (album != null)
             builder.putString(MediaMetadataCompat.METADATA_KEY_ALBUM, album);
-        // VIVO's SystemUI/Atomic Island already renders the current artist separately.
-        // Keeping the standard ARTIST field here produces "artist - title" plus another
-        // standalone artist line. Preserve artist for browse/other devices, but omit it
-        // from the current VIVO media item.
-        if (artist != null && !vivoCurrentMedia)
+        if (artist != null)
             builder.putString(MediaMetadataCompat.METADATA_KEY_ARTIST, artist);
         if (genre != null)
             builder.putString(MediaMetadataCompat.METADATA_KEY_GENRE, genre);
@@ -148,8 +144,14 @@ public class AudioService extends MediaBrowserServiceCompat {
             builder.putLong("playable_long", playable ? 1 : 0);
         if (displayTitle != null)
             builder.putString(MediaMetadataCompat.METADATA_KEY_DISPLAY_TITLE, displayTitle);
-        if (displaySubtitle != null)
+        if (displaySubtitle != null) {
             builder.putString(MediaMetadataCompat.METADATA_KEY_DISPLAY_SUBTITLE, displaySubtitle);
+        } else if (vivoCurrentMedia && artist != null && !artist.isEmpty()) {
+            // Mini Player uses title + subtitle as "song - artist".
+            // Status-bar media controls can still read the normal ARTIST field
+            // and render it as the second line.
+            builder.putString(MediaMetadataCompat.METADATA_KEY_DISPLAY_SUBTITLE, artist);
+        }
         if (displayDescription != null)
             builder.putString(MediaMetadataCompat.METADATA_KEY_DISPLAY_DESCRIPTION, displayDescription);
         if (rating != null) {
@@ -937,7 +939,13 @@ public class AudioService extends MediaBrowserServiceCompat {
                 incoming.getString("ucar.media.metadata.LYRICS_WHOLE");
         final String previousWhole =
                 this.mediaMetadata.getString("ucar.media.metadata.LYRICS_WHOLE");
-        return incomingWhole != null
+        final String incomingLine =
+                incoming.getString("ucar.media.metadata.LYRICS_LINE");
+        // Only treat an update as line-only when the explicit single-line signal
+        // is present. Normal VIVO whole-LRC updates must pass through so the car
+        // component keeps the complete LRC timeline.
+        return incomingLine != null
+                && incomingWhole != null
                 && previousWhole != null
                 && TextUtils.equals(incomingWhole, previousWhole);
     }
