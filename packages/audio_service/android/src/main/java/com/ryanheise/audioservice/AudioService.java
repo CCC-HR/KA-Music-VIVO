@@ -175,6 +175,10 @@ public class AudioService extends MediaBrowserServiceCompat {
         }
         MediaMetadataCompat mediaMetadata = builder.build();
         mediaMetadataCache.put(mediaId, mediaMetadata);
+        if (isVivoFamilyDevice() && title != null && !title.isEmpty()) {
+            final String vivoIdentity = title + "|" + (artist == null ? "" : artist);
+            mediaMetadataCache.put(vivoIdentity, mediaMetadata);
+        }
         return mediaMetadata;
     }
 
@@ -870,8 +874,57 @@ public class AudioService extends MediaBrowserServiceCompat {
      * Gets called from background thread.
      */
     synchronized void setQueue(List<MediaSessionCompat.QueueItem> queue) {
-        AudioService.queue = queue;
-        mediaSession.setQueue(queue);
+        // Atomic Island may compare the current MediaSession media ID with the
+        // description IDs in its playback list. Keep queue descriptions aligned
+        // with the stable title|artist session identity on VIVO/iQOO, while the
+        // QueueItem numeric IDs remain unchanged for activeQueueItemId.
+        AudioService.queue = normalizeVivoQueue(queue);
+        mediaSession.setQueue(AudioService.queue);
+    }
+
+    private List<MediaSessionCompat.QueueItem> normalizeVivoQueue(
+            List<MediaSessionCompat.QueueItem> source) {
+        if (!isVivoFamilyDevice() || source == null || source.isEmpty()) {
+            return source;
+        }
+
+        List<MediaSessionCompat.QueueItem> normalized =
+                new ArrayList<>(source.size());
+        for (MediaSessionCompat.QueueItem item : source) {
+            MediaDescriptionCompat oldDescription = item.getDescription();
+            if (oldDescription == null) {
+                normalized.add(item);
+                continue;
+            }
+
+            CharSequence title = oldDescription.getTitle();
+            CharSequence artist = oldDescription.getSubtitle();
+            if (title == null || title.length() == 0) {
+                normalized.add(item);
+                continue;
+            }
+
+            String mediaId = title.toString() + "|" +
+                    (artist == null ? "" : artist.toString());
+
+            MediaDescriptionCompat.Builder builder =
+                    new MediaDescriptionCompat.Builder()
+                            .setMediaId(mediaId)
+                            .setTitle(oldDescription.getTitle())
+                            .setSubtitle(oldDescription.getSubtitle())
+                            .setDescription(oldDescription.getDescription())
+                            .setIconBitmap(oldDescription.getIconBitmap())
+                            .setIconUri(oldDescription.getIconUri())
+                            .setMediaUri(oldDescription.getMediaUri());
+
+            if (oldDescription.getExtras() != null) {
+                builder.setExtras(new Bundle(oldDescription.getExtras()));
+            }
+
+            normalized.add(new MediaSessionCompat.QueueItem(
+                    builder.build(), item.getQueueId()));
+        }
+        return normalized;
     }
 
     void playMediaItem(MediaDescriptionCompat description) {
@@ -911,7 +964,7 @@ public class AudioService extends MediaBrowserServiceCompat {
             }
             final MediaMetadataCompat updated = builder.build();
             this.mediaMetadata = updated;
-            mediaSession.setMetadata(vivoSessionMetadata(updated));
+            mediaSession.setMetadata(updated);
             updateVivoMusicWidgetMixSessionExtras(mediaMetadata, false);
             return;
         }
@@ -933,29 +986,10 @@ public class AudioService extends MediaBrowserServiceCompat {
             }
         }
         this.mediaMetadata = mediaMetadata;
-        mediaSession.setMetadata(vivoSessionMetadata(mediaMetadata));
+        mediaSession.setMetadata(mediaMetadata);
         updateVivoMusicWidgetMixSessionExtras(mediaMetadata, false);
         handler.removeCallbacksAndMessages(null);
         handler.post(this::updateNotification);
-    }
-
-    private MediaMetadataCompat vivoSessionMetadata(MediaMetadataCompat metadata) {
-        if (metadata == null
-                || !metadata.containsKey("ucar.media.metadata.UCAR_TITLE")) {
-            return metadata;
-        }
-
-        final String title = metadata.getString(MediaMetadataCompat.METADATA_KEY_TITLE);
-        if (title == null || title.isEmpty()) return metadata;
-
-        final String artist = metadata.getString(MediaMetadataCompat.METADATA_KEY_ARTIST);
-        final String atomicMediaId = title + "|" + (artist == null ? "" : artist);
-
-        // Keep the MediaItem/browser identity untouched. Only the MediaSession copy
-        // gets the stable Atomic Island identity used by lrc_change matching.
-        return new MediaMetadataCompat.Builder(metadata)
-                .putString(MediaMetadataCompat.METADATA_KEY_MEDIA_ID, atomicMediaId)
-                .build();
     }
 
     private boolean isVivoLyricLineOnlyUpdate(MediaMetadataCompat incoming) {
@@ -997,9 +1031,14 @@ public class AudioService extends MediaBrowserServiceCompat {
     private void scheduleVivoAtomicResends() {
         vivoAtomicResendHandler.removeCallbacksAndMessages(null);
         if (mediaSession == null || vivoAtomicLastLyric.isEmpty()) return;
-        // First retry quickly for the common "Atomic Island attaches just after
-        // the first metadata update" race, then keep a 25s recurring heartbeat.
-        vivoAtomicResendHandler.postDelayed(this::resendCachedVivoAtomicExtras, 1000L);
+        // Cover the initial connection race aggressively, then keep the existing
+        // 25s heartbeat for late re-connections.
+        vivoAtomicResendHandler.postDelayed(this::resendCachedVivoAtomicExtras, 100L);
+        vivoAtomicResendHandler.postDelayed(this::resendCachedVivoAtomicExtras, 500L);
+        vivoAtomicResendHandler.postDelayed(this::resendCachedVivoAtomicExtras, 1500L);
+        vivoAtomicResendHandler.postDelayed(this::resendCachedVivoAtomicExtras, 3000L);
+        vivoAtomicResendHandler.postDelayed(this::resendCachedVivoAtomicExtras, 5000L);
+        vivoAtomicResendHandler.postDelayed(this::resendCachedVivoAtomicExtras, 10000L);
     }
 
     private void resendCachedVivoAtomicExtras() {
@@ -1403,6 +1442,14 @@ public class AudioService extends MediaBrowserServiceCompat {
 
         @Override
         public void onCustomAction(String action, Bundle extras) {
+            if ("action_request_whole_lrc".equals(action)) {
+                // Some VIVO builds request the current LRC as a custom action
+                // rather than MediaController.sendCommand(). Support both forms.
+                if (mediaMetadata != null) {
+                    updateVivoMusicWidgetMixSessionExtras(mediaMetadata, true);
+                }
+                return;
+            }
             if (listener == null) return;
             if (CUSTOM_ACTION_STOP.equals(action)) {
                 listener.onStop();
