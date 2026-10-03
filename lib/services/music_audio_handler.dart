@@ -267,6 +267,16 @@ class MusicAudioHandler extends BaseAudioHandler
   }
 
   @override
+  Future<void> skipToQueueItem(int index) async {
+    // VIVO Atomic Island selects a queue row through
+    // MediaSession.Callback.onSkipToQueueItem(queueId). audio_service assigns
+    // queue IDs sequentially from 0, so the queue ID is the same as the Dart
+    // queue index used to select the song.
+    if (index < 0 || index >= _queueSongs.length) return;
+    await _onPlaySong?.call(_queueSongs[index], _queueSongs);
+  }
+
+  @override
   Future<void> playFromMediaId(
     String mediaId, [
     Map<String, dynamic>? extras,
