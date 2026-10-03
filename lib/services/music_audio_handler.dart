@@ -29,6 +29,10 @@ class MusicAudioHandler extends BaseAudioHandler
   static const String _vivoSessionLrcChangeAction =
       'vivomusicmix.extra.lrc_change';
 
+  // Atomic Island matches lrc_change using title|artist. This identity is
+  // intentionally separate from the app's internal song hash/id used by Car.
+  static String _vivoAtomicMediaId(Song song) => '${song.title}|${song.artist}';
+
   MusicAudioHandler() {
     ratingStyle.add(RatingStyle.heart);
     audioPlayer.playbackEventStream
@@ -214,7 +218,7 @@ class MusicAudioHandler extends BaseAudioHandler
       _vivoUcarArtistKey: song.artist,
       _androidLyricsKey: _vivoLyricsWhole,
       _vivoSessionActionKey: _vivoSessionLrcChangeAction,
-      _vivoSessionMediaIdKey: _songId(song),
+      _vivoSessionMediaIdKey: _vivoAtomicMediaId(song),
       // Atomic Island parses this value as a full timestamped LRC string
       // through LrcUpdateEvent.lrcString. The current line is published
       // separately through ucar.media.metadata.LYRICS_LINE for CarLauncher.
@@ -404,7 +408,7 @@ class MusicAudioHandler extends BaseAudioHandler
           _androidLyricsKey: _vivoLyricsWhole,
           if (_vivoHasLyrics) ...{
             _vivoSessionActionKey: _vivoSessionLrcChangeAction,
-            _vivoSessionMediaIdKey: _songId(song),
+            _vivoSessionMediaIdKey: _vivoAtomicMediaId(song),
             _vivoSessionLyricKey: _vivoLyricsWhole,
           },
         },
