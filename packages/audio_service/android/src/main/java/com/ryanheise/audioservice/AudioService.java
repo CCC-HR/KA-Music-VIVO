@@ -124,8 +124,6 @@ public class AudioService extends MediaBrowserServiceCompat {
     }
 
     MediaMetadataCompat createMediaMetadata(String mediaId, String title, String album, String artist, String genre, Long duration, String artUri, Boolean playable, String displayTitle, String displaySubtitle, String displayDescription, RatingCompat rating, Map<?, ?> extras) {
-        final boolean vivoCurrentMedia =
-                extras != null && extras.containsKey("ucar.media.metadata.UCAR_TITLE");
         MediaMetadataCompat.Builder builder = new MediaMetadataCompat.Builder()
                 .putString(MediaMetadataCompat.METADATA_KEY_MEDIA_ID, mediaId)
                 .putString(MediaMetadataCompat.METADATA_KEY_TITLE, title);
@@ -142,26 +140,16 @@ public class AudioService extends MediaBrowserServiceCompat {
         }
         if (playable != null)
             builder.putLong("playable_long", playable ? 1 : 0);
-        if (vivoCurrentMedia) {
-            // Atomic Island Mini Player needs the compact title form on its first
-            // line. Keep standard TITLE/ARTIST untouched for other surfaces.
-            final String combinedTitle;
-            if (artist != null && !artist.isEmpty()) {
-                combinedTitle = title + " - " + artist;
-            } else {
-                combinedTitle = title;
-            }
-            builder.putString(MediaMetadataCompat.METADATA_KEY_DISPLAY_TITLE, combinedTitle);
-            // Do not expose artist as DISPLAY_SUBTITLE on the current VIVO item:
-            // Atomic Island uses that second row for its live lyric presentation.
-        } else {
-            if (displayTitle != null)
-                builder.putString(MediaMetadataCompat.METADATA_KEY_DISPLAY_TITLE, displayTitle);
-            if (displaySubtitle != null && !displaySubtitle.isEmpty()) {
-                builder.putString(MediaMetadataCompat.METADATA_KEY_DISPLAY_SUBTITLE, displaySubtitle);
-            } else if (artist != null && !artist.isEmpty()) {
-                builder.putString(MediaMetadataCompat.METADATA_KEY_DISPLAY_SUBTITLE, artist);
-            }
+        // Keep generic Android media metadata neutral. VIVO Car Connect and the
+        // system Control Center both consume these fields directly and must see
+        // song title / artist on their two lines. Atomic Island receives its
+        // lyric through the dedicated vivomusicmix lrc_change extras channel.
+        if (displayTitle != null)
+            builder.putString(MediaMetadataCompat.METADATA_KEY_DISPLAY_TITLE, displayTitle);
+        if (displaySubtitle != null && !displaySubtitle.isEmpty()) {
+            builder.putString(MediaMetadataCompat.METADATA_KEY_DISPLAY_SUBTITLE, displaySubtitle);
+        } else if (artist != null && !artist.isEmpty()) {
+            builder.putString(MediaMetadataCompat.METADATA_KEY_DISPLAY_SUBTITLE, artist);
         }
         if (displayDescription != null)
             builder.putString(MediaMetadataCompat.METADATA_KEY_DISPLAY_DESCRIPTION, displayDescription);
@@ -903,6 +891,11 @@ public class AudioService extends MediaBrowserServiceCompat {
      *  - https://9to5google.com/2020/08/02/android-11-lockscreen-art/
      */
     synchronized void setMetadata(MediaMetadataCompat mediaMetadata) {
+        // Atomic Island is keyed by title|artist for its lrc_change event. When
+        // the current VIVO track changes, drop the previous track's cached LRC
+        // before the new track's lyrics arrive so late resends can never replay
+        // stale lyrics into the new song.
+        resetVivoAtomicCacheForTrack(mediaMetadata);
         // VIVO CarLauncher receives the current lyric line through MediaMetadata,
         // while Atomic Island receives the complete LRC through MediaSession extras.
         // When only the line changes, avoid reloading artwork/notification and avoid
@@ -985,9 +978,9 @@ public class AudioService extends MediaBrowserServiceCompat {
     private void scheduleVivoAtomicResends() {
         vivoAtomicResendHandler.removeCallbacksAndMessages(null);
         if (mediaSession == null || vivoAtomicLastLyric.isEmpty()) return;
+        // First retry quickly for the common "Atomic Island attaches just after
+        // the first metadata update" race, then keep a 25s recurring heartbeat.
         vivoAtomicResendHandler.postDelayed(this::resendCachedVivoAtomicExtras, 1000L);
-        vivoAtomicResendHandler.postDelayed(this::resendCachedVivoAtomicExtras, 5000L);
-        vivoAtomicResendHandler.postDelayed(this::resendCachedVivoAtomicExtras, 25000L);
     }
 
     private void resendCachedVivoAtomicExtras() {
@@ -999,6 +992,32 @@ public class AudioService extends MediaBrowserServiceCompat {
         }
         extras.putString("vivomusicmix.extra.key.lyric", vivoAtomicLastLyric);
         mediaSession.setExtras(extras);
+
+        // Keep re-sending the current track's full LRC so Atomic Island can attach
+        // after playback starts without requiring a seek/next interaction.
+        if (vivoAtomicLastLyric.length() > 0) {
+            vivoAtomicResendHandler.postDelayed(
+                    this::resendCachedVivoAtomicExtras, 25000L);
+        }
+    }
+
+    private void resetVivoAtomicCacheForTrack(MediaMetadataCompat metadata) {
+        if (metadata == null || !metadata.containsKey("ucar.media.metadata.UCAR_TITLE")) {
+            return;
+        }
+
+        final String title = metadata.getString("ucar.media.metadata.UCAR_TITLE");
+        if (title == null || title.isEmpty()) return;
+
+        final String artist = metadata.getString("ucar.media.metadata.UCAR_ARTIST");
+        final String identity = title + "|" + (artist == null ? "" : artist);
+
+        if (!TextUtils.equals(identity, vivoAtomicLastMediaId)) {
+            vivoAtomicResendHandler.removeCallbacksAndMessages(null);
+            vivoAtomicLastAction = "";
+            vivoAtomicLastLyric = "";
+            vivoAtomicLastMediaId = identity;
+        }
     }
 
     private void updateVivoMusicWidgetMixSessionExtras(
