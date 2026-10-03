@@ -645,7 +645,10 @@ public class AudioService extends MediaBrowserServiceCompat {
             // Update the progress bar in the browse view as content is playing as explained
             // here: https://developer.android.com/training/cars/media#browse-progress-bar
             Bundle extras = new Bundle();
-            extras.putString(MediaConstants.PLAYBACK_STATE_EXTRAS_KEY_MEDIA_ID, mediaMetadata.getDescription().getMediaId());
+            MediaMetadataCompat progressMetadata = vivoSessionMetadata(mediaMetadata);
+            extras.putString(
+                    MediaConstants.PLAYBACK_STATE_EXTRAS_KEY_MEDIA_ID,
+                    progressMetadata.getDescription().getMediaId());
             stateBuilder.setExtras(extras);
         }
 
@@ -964,7 +967,7 @@ public class AudioService extends MediaBrowserServiceCompat {
             }
             final MediaMetadataCompat updated = builder.build();
             this.mediaMetadata = updated;
-            mediaSession.setMetadata(updated);
+            mediaSession.setMetadata(vivoSessionMetadata(updated));
             updateVivoMusicWidgetMixSessionExtras(mediaMetadata, false);
             return;
         }
@@ -986,10 +989,30 @@ public class AudioService extends MediaBrowserServiceCompat {
             }
         }
         this.mediaMetadata = mediaMetadata;
-        mediaSession.setMetadata(mediaMetadata);
+        mediaSession.setMetadata(vivoSessionMetadata(mediaMetadata));
         updateVivoMusicWidgetMixSessionExtras(mediaMetadata, false);
         handler.removeCallbacksAndMessages(null);
         handler.post(this::updateNotification);
+    }
+
+    private MediaMetadataCompat vivoSessionMetadata(MediaMetadataCompat metadata) {
+        if (metadata == null
+                || !metadata.containsKey("ucar.media.metadata.UCAR_TITLE")) {
+            return metadata;
+        }
+
+        final String title = metadata.getString(MediaMetadataCompat.METADATA_KEY_TITLE);
+        if (title == null || title.isEmpty()) return metadata;
+
+        final String artist = metadata.getString(MediaMetadataCompat.METADATA_KEY_ARTIST);
+        final String atomicMediaId = title + "|" + (artist == null ? "" : artist);
+
+        // Atomic Island's lrc_change channel and its playback-list entries use
+        // the same title|artist identity. Keep that identity inside the VIVO
+        // MediaSession while the normal MediaItem/browser IDs remain unchanged.
+        return new MediaMetadataCompat.Builder(metadata)
+                .putString(MediaMetadataCompat.METADATA_KEY_MEDIA_ID, atomicMediaId)
+                .build();
     }
 
     private boolean isVivoLyricLineOnlyUpdate(MediaMetadataCompat incoming) {
