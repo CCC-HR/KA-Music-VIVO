@@ -911,7 +911,7 @@ public class AudioService extends MediaBrowserServiceCompat {
             }
             final MediaMetadataCompat updated = builder.build();
             this.mediaMetadata = updated;
-            mediaSession.setMetadata(updated);
+            mediaSession.setMetadata(vivoSessionMetadata(updated));
             updateVivoMusicWidgetMixSessionExtras(mediaMetadata, false);
             return;
         }
@@ -933,10 +933,29 @@ public class AudioService extends MediaBrowserServiceCompat {
             }
         }
         this.mediaMetadata = mediaMetadata;
-        mediaSession.setMetadata(mediaMetadata);
+        mediaSession.setMetadata(vivoSessionMetadata(mediaMetadata));
         updateVivoMusicWidgetMixSessionExtras(mediaMetadata, false);
         handler.removeCallbacksAndMessages(null);
         handler.post(this::updateNotification);
+    }
+
+    private MediaMetadataCompat vivoSessionMetadata(MediaMetadataCompat metadata) {
+        if (metadata == null
+                || !metadata.containsKey("ucar.media.metadata.UCAR_TITLE")) {
+            return metadata;
+        }
+
+        final String title = metadata.getString(MediaMetadataCompat.METADATA_KEY_TITLE);
+        if (title == null || title.isEmpty()) return metadata;
+
+        final String artist = metadata.getString(MediaMetadataCompat.METADATA_KEY_ARTIST);
+        final String atomicMediaId = title + "|" + (artist == null ? "" : artist);
+
+        // Keep the MediaItem/browser identity untouched. Only the MediaSession copy
+        // gets the stable Atomic Island identity used by lrc_change matching.
+        return new MediaMetadataCompat.Builder(metadata)
+                .putString(MediaMetadataCompat.METADATA_KEY_MEDIA_ID, atomicMediaId)
+                .build();
     }
 
     private boolean isVivoLyricLineOnlyUpdate(MediaMetadataCompat incoming) {
