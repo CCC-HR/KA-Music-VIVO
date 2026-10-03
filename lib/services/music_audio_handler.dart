@@ -271,16 +271,19 @@ class MusicAudioHandler extends BaseAudioHandler
     String mediaId, [
     Map<String, dynamic>? extras,
   ]) async {
+    // VIVO/Atomic Island may address the queue entry with either the app's
+    // internal song ID or the VIVO stable title|artist identity.
     for (final song in _queueSongs) {
-      if (_songId(song) == mediaId) {
+      if (_songId(song) == mediaId || _vivoAtomicMediaId(song) == mediaId) {
         await _onPlaySong?.call(song, _queueSongs);
         return;
       }
     }
+
     final browseQueue = _vivoBrowseQueues[mediaId];
     if (browseQueue == null) return;
     for (final song in browseQueue) {
-      if (_songId(song) == mediaId) {
+      if (_songId(song) == mediaId || _vivoAtomicMediaId(song) == mediaId) {
         await _onPlaySong?.call(song, browseQueue);
         return;
       }
@@ -344,7 +347,11 @@ class MusicAudioHandler extends BaseAudioHandler
         return const [];
     }
     for (final song in songs) {
+      // Browser list entries on VIVO use title|artist as their Media ID so
+      // Atomic Island can match the active queue item. Keep both identities
+      // pointing to the same browse queue for playback requests.
       _vivoBrowseQueues[_songId(song)] = songs;
+      _vivoBrowseQueues[_vivoAtomicMediaId(song)] = songs;
     }
     return List<MediaItem>.generate(
       songs.length,
